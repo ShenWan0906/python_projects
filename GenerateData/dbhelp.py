@@ -4,12 +4,20 @@ import sys
 
 print("🔄 正在连接到数据库...")
 
-DB_CONFIG = {
+DB_CONFIG2 = {
     "user": "root",
     "password": "p@ssw0rd.",
     "host": "109.123.246.112",
     "port": 3306,
     "database": "hes-jar",
+}
+
+DB_CONFIG = {
+    "user": "root",
+    "password": "p@ssw0rd.",
+    "host": "192.168.16.59",
+    "port": 3308,
+    "database": "hesv4",
 }
 
 def get_engine():
