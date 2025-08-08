@@ -14,7 +14,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # === 设置最大查询条数 ===
-LIMIT_COUNT = 9000  # 可根据需要调整
+LIMIT_COUNT = 100000
 
 
 def clean_string(s):
@@ -30,7 +30,7 @@ def similarity(a, b):
 def random_point_within_radius(lat_center, lon_center, radius_km):
     radius_deg = radius_km / 111.0
     angle = random.uniform(0, 2 * math.pi)
-    r = radius_deg * math.sqrt(random.uniform(0, 1))  # 均匀分布在圆内
+    r = radius_deg * math.sqrt(random.uniform(0, 1))
     lat_offset = r * math.cos(angle)
     lon_offset = r * math.sin(angle) / math.cos(math.radians(lat_center))
     return lat_center + lat_offset, lon_center + lon_offset
@@ -47,14 +47,7 @@ def build_geo_index(geo_df):
         lat = row['latitude']
         lon = row['longitude']
 
-        if province not in province_index:
-            province_index[province] = {}
-        if city not in province_index[province]:
-            province_index[province][city] = {}
-        if district not in province_index[province][city]:
-            province_index[province][city][district] = []
-
-        province_index[province][city][district].append((lat, lon))
+        province_index.setdefault(province, {}).setdefault(city, {}).setdefault(district, []).append((lat, lon))
 
     logger.info(f"🌳 地址索引构建完成 | 耗时: {time.time() - start_time:.2f}s")
     return province_index
@@ -71,7 +64,7 @@ def match_address(province, city, district, geo_index):
             best_province_score = score
 
     if best_province_score < 0.5:
-        return None, 0
+        return None, 0, (best_province, best_province_score, None, None, None, None)
 
     best_city = None
     best_city_score = 0
@@ -82,8 +75,22 @@ def match_address(province, city, district, geo_index):
             best_city_score = score
 
     if best_city_score < 0.5:
-        return None, (best_province_score + best_city_score) / 2
+        return None, (best_province_score + best_city_score) / 2, (
+            best_province, best_province_score, best_city, best_city_score, None, None)
 
+    # === 区为空时，执行二级匹配 ===
+    if not district:
+        all_points = []
+        for dist_points in geo_index[best_province][best_city].values():
+            all_points.extend(dist_points)
+        if all_points:
+            return random.choice(all_points), (best_province_score + best_city_score) / 2, (
+                best_province, best_province_score, best_city, best_city_score, None, None)
+        else:
+            return None, (best_province_score + best_city_score) / 2, (
+                best_province, best_province_score, best_city, best_city_score, None, None)
+
+    # === 继续区级匹配 ===
     best_district = None
     best_district_score = 0
     for dist in geo_index[best_province][best_city].keys():
@@ -93,10 +100,12 @@ def match_address(province, city, district, geo_index):
             best_district_score = score
 
     if best_district_score < 0.5:
-        return None, (best_province_score + best_city_score + best_district_score) / 3
+        return None, (best_province_score + best_city_score + best_district_score) / 3, (
+            best_province, best_province_score, best_city, best_city_score, best_district, best_district_score)
 
     points = geo_index[best_province][best_city][best_district]
-    return random.choice(points), (best_province_score + best_city_score + best_district_score) / 3
+    return random.choice(points), (best_province_score + best_city_score + best_district_score) / 3, (
+        best_province, best_province_score, best_city, best_city_score, best_district, best_district_score)
 
 
 def batch_update_mysql(conn, update_batch):
@@ -161,7 +170,6 @@ def main():
               AND (d.install_longitude IS NULL OR d.install_latitude IS NULL)
             LIMIT :limit
         """)
-        # ✅ 返回 dict-like 行对象
         devices = conn.execute(device_query, {'limit': LIMIT_COUNT}).mappings().all()
 
     logger.info(f"🔍 共查询到 {len(devices)} 条有效设备（未设置安装坐标）")
@@ -169,6 +177,8 @@ def main():
     stats = {
         'total': len(devices),
         'matched': 0,
+        'matched_lvl2': 0,
+        'matched_lvl3': 0,
         'update_fail': 0,
         'match_fail': 0,
         'start_time': time.time()
@@ -186,7 +196,7 @@ def main():
             city = clean_string(row['city_name'])
             district = clean_string(row['region_name'])
 
-            result, score = match_address(province, city, district, geo_index)
+            result, score, match_info = match_address(province, city, district, geo_index)
 
             if result:
                 lat, lon = random_point_within_radius(result[0], result[1], radius_km=10)
@@ -197,9 +207,20 @@ def main():
                     'lon': lon
                 })
                 stats['matched'] += 1
+                if not district:
+                    stats['matched_lvl2'] += 1
+                else:
+                    stats['matched_lvl3'] += 1
             else:
                 stats['match_fail'] += 1
-                tqdm.write(f"❌ 匹配失败 (最高相似度: {score:.2f}) | 设备ID: {device_id}")
+                matched_prov, prov_score, matched_city, city_score, matched_dist, dist_score = match_info
+                tqdm.write(
+                    f"❌ 匹配失败 | 设备ID: {device_id} | "
+                    f"原始地址: ({province}, {city}, {district}) | "
+                    f"最相似匹配: ({matched_prov or '-'}:{prov_score:.2f}, "
+                    f"{matched_city or '-'}:{city_score or 0:.2f}, "
+                    f"{matched_dist or '-'}:{dist_score or 0:.2f})"
+                )
 
             if len(update_batch) >= batch_size or idx == len(devices):
                 try:
@@ -212,11 +233,13 @@ def main():
     duration = time.time() - stats['start_time']
     logger.info(f"\n✅ 处理完成! 总耗时: {duration:.2f}秒")
     logger.info(f"📊 处理统计结果:")
-    logger.info(f"  设备总数     : {stats['total']}")
-    logger.info(f"  匹配成功更新 : {stats['matched']} ({(stats['matched'] / stats['total']) * 100:.1f}%)")
-    logger.info(f"  匹配失败     : {stats['match_fail']} ({(stats['match_fail'] / stats['total']) * 100:.1f}%)")
-    logger.info(f"  更新失败     : {stats['update_fail']} ({(stats['update_fail'] / stats['total']) * 100:.1f}%)")
-    logger.info(f"  平均处理速度 : {stats['total'] / max(duration, 0.001):.1f} 条/秒")
+    logger.info(f"  设备总数       : {stats['total']}")
+    logger.info(f"  匹配成功总数   : {stats['matched']} ({(stats['matched'] / stats['total']) * 100:.1f}%)")
+    logger.info(f"    ├ 二级匹配   : {stats['matched_lvl2']}")
+    logger.info(f"    └ 三级匹配   : {stats['matched_lvl3']}")
+    logger.info(f"  匹配失败       : {stats['match_fail']} ({(stats['match_fail'] / stats['total']) * 100:.1f}%)")
+    logger.info(f"  更新失败       : {stats['update_fail']} ({(stats['update_fail'] / stats['total']) * 100:.1f}%)")
+    logger.info(f"  平均处理速度   : {stats['total'] / max(duration, 0.001):.1f} 条/秒")
 
 
 if __name__ == "__main__":
