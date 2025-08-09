@@ -167,7 +167,6 @@ def main():
             WHERE d.second_id IS NOT NULL
               AND m.province_name IS NOT NULL
               AND m.city_name IS NOT NULL
-              AND (d.install_longitude IS NULL OR d.install_latitude IS NULL)
             LIMIT :limit
         """)
         devices = conn.execute(device_query, {'limit': LIMIT_COUNT}).mappings().all()
