@@ -4,7 +4,7 @@ import sys
 
 print("🔄 正在连接到数据库...")
 
-DB_CONFIG2 = {
+DB_CONFIG = {
     "user": "root",
     "password": "p@ssw0rd.",
     "host": "109.123.246.112",
@@ -12,7 +12,7 @@ DB_CONFIG2 = {
     "database": "hes-jar",
 }
 
-DB_CONFIG = {
+DB_CONFIG2 = {
     "user": "root",
     "password": "p@ssw0rd.",
     "host": "192.168.16.59",
