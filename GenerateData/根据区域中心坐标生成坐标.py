@@ -8,7 +8,7 @@ from dbhelp import engine
 from difflib import SequenceMatcher
 
 # === 1. 读取CSV文件 ===
-geo_df = pd.read_csv('GeoAdministrativeUnits new.csv')
+geo_df = pd.read_csv('GeoAdministrativeUnitsnew.csv')
 
 # === 2. 查询设备表 ===
 with engine.connect() as conn:

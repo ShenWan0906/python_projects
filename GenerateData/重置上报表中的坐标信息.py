@@ -154,7 +154,7 @@ def batch_update_mysql(conn, update_batch):
 
 def main():
     logger.info("⏳ 开始读取地理地址数据...")
-    geo_df = pd.read_csv('GeoAdministrativeUnits new.csv')
+    geo_df = pd.read_csv('GeoAdministrativeUnitsnew.csv')
     geo_index = build_geo_index(geo_df)
 
     logger.info("⏳ 查询数据库设备数据...")

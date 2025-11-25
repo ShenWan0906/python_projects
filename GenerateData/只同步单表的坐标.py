@@ -115,7 +115,7 @@ def batch_update_mysql(conn, update_batch):
 
 def main():
     logger.info("📥 加载地理地址数据...")
-    geo_df = pd.read_csv("GeoAdministrativeUnits new.csv")
+    geo_df = pd.read_csv("GeoAdministrativeUnitsnew.csv")
     geo_index = build_geo_index(geo_df)
     logger.info("🌐 地址索引构建完成")
 
