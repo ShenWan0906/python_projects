@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 # === 工具函数 ===
-def random_point(lat_center, lon_center, radius_km=100):
+def random_point(lat_center, lon_center, radius_km=1000):
     radius_deg = radius_km / 111.0
     angle = random.uniform(0, 2 * math.pi)
     r = radius_deg * math.sqrt(random.uniform(0, 1))
@@ -187,4 +187,4 @@ def main(add_count=1000000, batch_size=5000):
 
 
 if __name__ == "__main__":
-    main(add_count=1000000, batch_size=5000)
+    main(add_count=4000000, batch_size=5000)
